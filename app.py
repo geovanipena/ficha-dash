@@ -71,19 +71,33 @@ def secao_upload():
         [
             dbc.CardHeader([html.I(className="fa-solid fa-file-import me-2"), "Importar plano (DICOM-RT)"]),
             dbc.CardBody(
-                dbc.Row(
-                    [
-                        zona_upload(
-                            "upload-tc", "status-tc", "TC — um corte .dcm", multiple=False
-                        ),
-                        zona_upload(
-                            "upload-plano",
-                            "status-plano",
-                            "Plano — RP + RS + RD",
-                            multiple=True,
-                        ),
-                    ]
-                )
+                [
+                    dbc.Row(
+                        [
+                            zona_upload(
+                                "upload-plano",
+                                "status-plano",
+                                "Plano — RP + RS + RD",
+                                multiple=True,
+                            ),
+                            zona_upload(
+                                "upload-tc",
+                                "status-tc",
+                                "TC (opcional) — qualquer corte .dcm",
+                                multiple=False,
+                            ),
+                        ]
+                    ),
+                    html.Div(
+                        [
+                            html.I(className="fa-solid fa-circle-info me-1"),
+                            "Os dados do paciente são preenchidos pelo RP/RS/RD. "
+                            "A TC é opcional: qualquer corte serve (todos têm o mesmo "
+                            "paciente) e só será usada na página de cortes/DVH.",
+                        ],
+                        className="small text-muted mt-2",
+                    ),
+                ]
             ),
         ],
         className="mb-4 shadow-sm",
