@@ -29,11 +29,21 @@ def carregar(conteudo: bytes) -> Dataset:
 
 
 def _formatar_nome(valor: Any) -> str:
-    """Converte um PersonName DICOM (Sobrenome^Nome) em texto legível."""
+    """Converte um PersonName DICOM em nome na ordem natural (nome sobrenome).
+
+    O DICOM armazena ``Família^Nome^Meio`` (sobrenome primeiro). A ficha usa a
+    ordem natural brasileira, então reordenamos para ``Nome Meio Família``.
+    """
     if not valor:
         return ""
-    texto = str(valor).replace("^", " ").strip()
-    return " ".join(texto.split())
+    familia = str(getattr(valor, "family_name", "") or "").strip()
+    nome = str(getattr(valor, "given_name", "") or "").strip()
+    meio = str(getattr(valor, "middle_name", "") or "").strip()
+    if familia or nome:
+        completo = " ".join(p for p in (nome, meio, familia) if p)
+    else:
+        completo = str(valor).replace("^", " ")
+    return " ".join(completo.split())
 
 
 def _formatar_data(valor: Any) -> str:
