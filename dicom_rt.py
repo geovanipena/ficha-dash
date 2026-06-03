@@ -84,6 +84,55 @@ def _tecnica_do_feixe(beam: Dataset) -> str:
     return "3D Conformacional (3D-CRT)"
 
 
+def _cm(valor_mm: Any) -> float | None:
+    """Converte milímetros (DICOM) em centímetros, com 1 casa."""
+    return round(float(valor_mm) / 10.0, 1) if valor_mm is not None else None
+
+
+def _mordentes(cp0: Dataset) -> dict:
+    """Posições dos mordentes (X1/X2/Y1/Y2) em cm a partir do control point."""
+    res: dict[str, float | None] = {}
+    for dev in getattr(cp0, "BeamLimitingDevicePositionSequence", []):
+        tipo = str(getattr(dev, "RTBeamLimitingDeviceType", "")).upper()
+        pos = list(getattr(dev, "LeafJawPositions", []) or [])
+        if len(pos) < 2:
+            continue
+        if tipo in {"X", "ASYMX"}:
+            res["x1"], res["x2"] = abs(_cm(pos[0])), abs(_cm(pos[1]))
+        elif tipo in {"Y", "ASYMY"}:
+            res["y1"], res["y2"] = abs(_cm(pos[0])), abs(_cm(pos[1]))
+    return res
+
+
+def _energia_rotulo(beam: Dataset, cp0: Dataset) -> str:
+    """Energia no formato da ficha: '10FFF', '6 MV', '9 MeV'."""
+    energia = getattr(cp0, "NominalBeamEnergy", None)
+    if energia is None:
+        return ""
+    radiacao = str(getattr(beam, "RadiationType", "")).upper()
+    unidade = "MeV" if radiacao == "ELECTRON" else "MV"
+    # Modo de fluência FFF (flattening filter free).
+    fff = False
+    for fm in getattr(beam, "PrimaryFluenceModeSequence", []):
+        if str(getattr(fm, "FluenceModeID", "")).upper() == "FFF":
+            fff = True
+        if str(getattr(fm, "FluenceMode", "")).upper() == "NON_STANDARD" and getattr(
+            fm, "FluenceModeID", ""
+        ):
+            fff = str(fm.FluenceModeID).upper() == "FFF"
+    return f"{energia:g}FFF" if fff else f"{energia:g} {unidade}"
+
+
+def _filtro(beam: Dataset) -> str:
+    """Indica a presença de filtro/cunha (wedge) no feixe."""
+    if getattr(beam, "NumberOfWedges", 0):
+        seq = getattr(beam, "WedgeSequence", [])
+        if seq:
+            return str(getattr(seq[0], "WedgeID", "") or getattr(seq[0], "WedgeAngle", "") or "Cunha")
+        return "Cunha"
+    return "-"
+
+
 def parse_rtplan(ds: Dataset) -> dict:
     """Prescrição, grupo de frações e tabela feixe a feixe do RT Plan."""
     info: dict[str, Any] = {
@@ -100,17 +149,22 @@ def parse_rtplan(ds: Dataset) -> dict:
             dose_prescrita = float(dref.TargetPrescriptionDose)
             break
 
-    # Grupo de frações: nº de frações e dose por feixe.
+    # Grupo de frações: nº de frações, dose e MU (BeamMeterset) por feixe.
     num_fracoes = None
     dose_por_feixe: dict[int, float] = {}
+    mu_por_feixe: dict[int, float] = {}
     grupos = getattr(ds, "FractionGroupSequence", [])
     if grupos:
         fg = grupos[0]
         num_fracoes = getattr(fg, "NumberOfFractionsPlanned", None)
         for rb in getattr(fg, "ReferencedBeamSequence", []):
             num = getattr(rb, "ReferencedBeamNumber", None)
-            if num is not None and getattr(rb, "BeamDose", None) is not None:
+            if num is None:
+                continue
+            if getattr(rb, "BeamDose", None) is not None:
                 dose_por_feixe[int(num)] = float(rb.BeamDose)
+            if getattr(rb, "BeamMeterset", None) is not None:
+                mu_por_feixe[int(num)] = float(rb.BeamMeterset)
 
     # Tabela de feixes.
     feixes = []
@@ -122,6 +176,7 @@ def parse_rtplan(ds: Dataset) -> dict:
         cp0 = cps[0] if cps else Dataset()
         maquina = maquina or str(getattr(beam, "TreatmentMachineName", "") or "")
         numero = getattr(beam, "BeamNumber", None)
+        jaws = _mordentes(cp0)
         feixes.append(
             {
                 "numero": numero,
@@ -129,15 +184,23 @@ def parse_rtplan(ds: Dataset) -> dict:
                 "radiacao": str(getattr(beam, "RadiationType", "") or ""),
                 "tecnica": _tecnica_do_feixe(beam),
                 "energia": getattr(cp0, "NominalBeamEnergy", None),
+                "energia_rotulo": _energia_rotulo(beam, cp0),
+                "ssd": _cm(getattr(cp0, "SourceToSurfaceDistance", None)),
+                "x1": jaws.get("x1"),
+                "x2": jaws.get("x2"),
+                "y1": jaws.get("y1"),
+                "y2": jaws.get("y2"),
                 "gantry": getattr(cp0, "GantryAngle", None),
                 "colimador": getattr(cp0, "BeamLimitingDeviceAngle", None),
                 "mesa": getattr(cp0, "PatientSupportAngle", None),
-                "um": getattr(beam, "FinalCumulativeMetersetWeight", None),
+                "bolus": "Sim" if getattr(beam, "NumberOfBoli", 0) else "-",
+                "filtro": _filtro(beam),
+                "um": mu_por_feixe.get(int(numero)) if numero is not None else None,
                 "dose_feixe": dose_por_feixe.get(int(numero)) if numero is not None else None,
             }
         )
 
-    energias = {f["energia"] for f in feixes if f["energia"] is not None}
+    energias = {f["energia_rotulo"] for f in feixes if f["energia_rotulo"]}
     tecnicas = {f["tecnica"] for f in feixes if f["tecnica"]}
 
     info.update(
@@ -150,7 +213,7 @@ def parse_rtplan(ds: Dataset) -> dict:
                 else None
             ),
             "maquina": maquina,
-            "energia": ", ".join(f"{e:g} MV" for e in sorted(energias)) if energias else "",
+            "energia": ", ".join(sorted(energias)),
             "tecnica": ", ".join(sorted(tecnicas)),
             "num_feixes": len(feixes),
             "feixes": feixes,

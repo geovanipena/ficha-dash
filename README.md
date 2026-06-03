@@ -45,8 +45,21 @@ gunicorn app:server
 
 ```
 ficha-dash/
-├── app.py            # Aplicação Dash (layout, callbacks, geração de PDF)
+├── app.py            # Aplicação Dash (layout, callbacks, upload DICOM)
+├── dicom_rt.py       # Leitura dos objetos DICOM-RT (TC/RP/RS/RD)
+├── ficha_pdf.py      # Geração do PDF no layout institucional (Cebrom)
+├── assets/           # Logo e estáticos servidos pelo Dash
 ├── requirements.txt
 ├── Procfile          # gunicorn app:server
 └── .claude/          # Configuração de tooling (ruff)
 ```
+
+## Geração da ficha (PDF)
+
+`ficha_pdf.gerar_ficha(dados, store)` reproduz o formulário institucional:
+
+- **Página 2** — Ficha Técnica de Tratamento (cabeçalho + paciente, tabela do
+  plano, tabela de campos/feixes, observações e checklist pré-tratamento).
+- **Página 3** — mapa de acompanhamento das frações com dose cumulativa.
+- **Página 1** (cortes ortogonais + DVH) — em desenvolvimento; requer a série
+  de TC e o RT Dose/Struct para renderização das imagens e do histograma.

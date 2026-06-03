@@ -8,25 +8,13 @@ ficha técnica de tratamento.
 from __future__ import annotations
 
 import base64
-import io
-from datetime import date
 
 import dash
 import dash_bootstrap_components as dbc
 from dash import Input, Output, State, dcc, html, no_update
-from reportlab.lib import colors
-from reportlab.lib.pagesizes import A4
-from reportlab.lib.styles import getSampleStyleSheet
-from reportlab.lib.units import mm
-from reportlab.platypus import (
-    Paragraph,
-    SimpleDocTemplate,
-    Spacer,
-    Table,
-    TableStyle,
-)
 
 import dicom_rt
+import ficha_pdf
 
 # ---------------------------------------------------------------------------
 # Constantes do domínio (radioterapia)
@@ -449,115 +437,6 @@ def resumo_prescricao(dose_total, dose_fracao, fracoes):
 # ---------------------------------------------------------------------------
 
 
-def _tabela_pdf(linhas, larguras):
-    tabela = Table(linhas, colWidths=larguras)
-    tabela.setStyle(
-        TableStyle(
-            [
-                ("GRID", (0, 0), (-1, -1), 0.5, colors.lightgrey),
-                ("BACKGROUND", (0, 0), (0, -1), colors.HexColor("#f1f3f5")),
-                ("FONTNAME", (0, 0), (0, -1), "Helvetica-Bold"),
-                ("FONTSIZE", (0, 0), (-1, -1), 8),
-                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-                ("LEFTPADDING", (0, 0), (-1, -1), 5),
-                ("TOPPADDING", (0, 0), (-1, -1), 3),
-                ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
-            ]
-        )
-    )
-    return tabela
-
-
-def _construir_pdf(dados: dict, store: dict) -> bytes:
-    """Gera o PDF da ficha técnica a partir do formulário e dos dados DICOM."""
-    buffer = io.BytesIO()
-    doc = SimpleDocTemplate(buffer, pagesize=A4, topMargin=18 * mm, bottomMargin=18 * mm)
-    estilos = getSampleStyleSheet()
-    elementos = [
-        Paragraph("Ficha Técnica de Tratamento — Radioterapia", estilos["Title"]),
-        Spacer(1, 5 * mm),
-    ]
-
-    secoes = {
-        "Paciente": [
-            ("Nome", dados.get("pac_nome")),
-            ("Registro", dados.get("pac_registro")),
-            ("Nascimento", dados.get("pac_nascimento")),
-        ],
-        "Diagnóstico": [
-            ("Localização", dados.get("dx_local")),
-            ("CID-10", dados.get("dx_cid")),
-            ("TNM", dados.get("dx_tnm")),
-        ],
-        "Prescrição": [
-            ("Dose total (Gy)", dados.get("rx_dose_total")),
-            ("Dose/fração (Gy)", dados.get("rx_dose_fracao")),
-            ("Nº de frações", dados.get("rx_fracoes")),
-            ("Técnica", dados.get("rx_tecnica")),
-            ("Energia", dados.get("rx_energia")),
-            ("Equipamento", dados.get("rx_equipamento")),
-        ],
-        "Equipe": [
-            ("Médico", dados.get("eq_medico")),
-            ("Físico", dados.get("eq_fisico")),
-            ("Dosimetrista", dados.get("eq_dosimetrista")),
-        ],
-    }
-
-    for titulo, linhas in secoes.items():
-        elementos.append(Paragraph(titulo, estilos["Heading2"]))
-        elementos.append(
-            _tabela_pdf(
-                [[rotulo, str(valor or "—")] for rotulo, valor in linhas],
-                [55 * mm, 110 * mm],
-            )
-        )
-        elementos.append(Spacer(1, 4 * mm))
-
-    # Tabela de feixes (RT Plan).
-    feixes = store.get("RP", {}).get("feixes") or []
-    if feixes:
-        elementos.append(Paragraph("Feixes", estilos["Heading2"]))
-        cab = ["#", "Nome", "Técnica", "Energia", "Gantry", "Colim.", "Mesa", "UM", "Dose"]
-        corpo = [cab] + [
-            [
-                str(f.get("numero") or "—"),
-                f.get("nome") or "—",
-                f.get("tecnica") or "—",
-                f"{float(f['energia']):g} MV" if f.get("energia") else "—",
-                f"{float(f['gantry']):g}°" if f.get("gantry") is not None else "—",
-                f"{float(f['colimador']):g}°" if f.get("colimador") is not None else "—",
-                f"{float(f['mesa']):g}°" if f.get("mesa") is not None else "—",
-                f"{float(f['um']):g}" if f.get("um") is not None else "—",
-                f"{float(f['dose_feixe']):g}" if f.get("dose_feixe") is not None else "—",
-            ]
-            for f in feixes
-        ]
-        elementos.append(_tabela_pdf(corpo, None))
-        elementos.append(Spacer(1, 4 * mm))
-
-    # Volumes e órgãos de risco (RT Struct).
-    rs = store.get("RS", {})
-    if rs:
-        alvos = ", ".join(a["nome"] for a in rs.get("alvos", [])) or "—"
-        oars = ", ".join(o["nome"] for o in rs.get("orgaos_risco", [])) or "—"
-        elementos.append(Paragraph("Volumes e órgãos de risco", estilos["Heading2"]))
-        elementos.append(
-            _tabela_pdf(
-                [["Volumes-alvo", alvos], ["Órgãos de risco", oars]],
-                [55 * mm, 110 * mm],
-            )
-        )
-        elementos.append(Spacer(1, 4 * mm))
-
-    elementos.append(Spacer(1, 6 * mm))
-    elementos.append(
-        Paragraph(f"Documento gerado em {date.today().strftime('%d/%m/%Y')}.", estilos["Italic"])
-    )
-    doc.build(elementos)
-    return buffer.getvalue()
-
-
 @app.callback(
     Output("download-pdf", "data"),
     Input("btn-pdf", "n_clicks"),
@@ -611,11 +490,12 @@ def gerar_pdf(
         "rx_tecnica": rx_tecnica,
         "rx_energia": rx_energia,
         "rx_equipamento": rx_equipamento,
+        "maquina": rx_equipamento,
         "eq_medico": eq_medico,
         "eq_fisico": eq_fisico,
         "eq_dosimetrista": eq_dosimetrista,
     }
-    pdf_bytes = _construir_pdf(dados, store or {})
+    pdf_bytes = ficha_pdf.gerar_ficha(dados, store or {})
     nome_arquivo = f"ficha_{(pac_nome or 'paciente').strip().replace(' ', '_').lower()}.pdf"
     return dcc.send_bytes(pdf_bytes, nome_arquivo)
 
