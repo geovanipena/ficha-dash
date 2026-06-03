@@ -36,13 +36,8 @@ TECNICAS = ["3D Conformacional (3D-CRT)", "IMRT", "VMAT", "SBRT/SABR", "Elétron
 ENERGIAS = ["6 MV", "10 MV", "15 MV", "6 FFF", "10 FFF", "6 MeV", "9 MeV", "12 MeV"]
 EQUIPAMENTOS = ["LINAC TrueBeam", "LINAC Halcyon", "LINAC Versa HD", "Tomotherapy", "Cyberknife"]
 
-# Objetos DICOM aceitos no upload (código -> rótulo amigável).
-OBJETOS_DICOM = {
-    "TC": "TC (imagens CT)",
-    "RP": "RP (RT Plan)",
-    "RS": "RS (RT Struct)",
-    "RD": "RD (RT Dose)",
-}
+# Objetos DICOM lidos pelo botão do plano (identificados pela modalidade).
+OBJETOS_PLANO = ("RP", "RS", "RD")
 
 # ---------------------------------------------------------------------------
 # App
@@ -62,23 +57,23 @@ def _campo(label: str, componente):
     return dbc.Col([dbc.Label(label, className="fw-semibold"), componente], md=4, className="mb-3")
 
 
-def zona_upload(codigo: str, rotulo: str):
-    """Área de upload (dcc.Upload) para um objeto DICOM."""
+def zona_upload(upload_id: str, status_id: str, rotulo: str, multiple: bool):
+    """Área de upload (dcc.Upload) com rótulo e status."""
     return dbc.Col(
         [
             dcc.Upload(
-                id=f"upload-{codigo.lower()}",
-                multiple=(codigo == "TC"),
+                id=upload_id,
+                multiple=multiple,
                 children=html.Div(
                     [html.I(className="fa-solid fa-cloud-arrow-up fa-lg mb-1"), html.Br(), rotulo],
-                    className="text-center py-3",
+                    className="text-center py-4",
                 ),
                 className="border border-2 border-dashed rounded text-muted",
                 style={"cursor": "pointer"},
             ),
-            html.Div(id=f"status-{codigo.lower()}", className="small mt-1 text-center"),
+            html.Div(id=status_id, className="small mt-1 text-center"),
         ],
-        md=3,
+        md=6,
         className="mb-2",
     )
 
@@ -88,10 +83,17 @@ def secao_upload():
         [
             dbc.CardHeader([html.I(className="fa-solid fa-file-import me-2"), "Importar plano (DICOM-RT)"]),
             dbc.CardBody(
-                [
-                    dbc.Row([zona_upload(c, r) for c, r in OBJETOS_DICOM.items()]),
-                    html.Div(id="upload-aviso", className="small text-muted mt-2"),
-                ]
+                dbc.Row(
+                    [
+                        zona_upload("upload-tc", "status-tc", "TC (imagens CT)", multiple=True),
+                        zona_upload(
+                            "upload-plano",
+                            "status-plano",
+                            "Plano — RP + RS + RD",
+                            multiple=True,
+                        ),
+                    ]
+                )
             ),
         ],
         className="mb-4 shadow-sm",
@@ -264,48 +266,68 @@ def _decodificar(contents: str) -> bytes:
 # ---------------------------------------------------------------------------
 
 
+def _status_ok(txt):
+    return html.Span([html.I(className="fa-solid fa-circle-check text-success me-1"), txt])
+
+
+def _status_erro(txt):
+    return html.Span([html.I(className="fa-solid fa-circle-xmark text-danger me-1"), txt])
+
+
 @app.callback(
     Output("store-dicom", "data"),
     Output("status-tc", "children"),
-    Output("status-rp", "children"),
-    Output("status-rs", "children"),
-    Output("status-rd", "children"),
+    Output("status-plano", "children"),
     Input("upload-tc", "contents"),
-    Input("upload-rp", "contents"),
-    Input("upload-rs", "contents"),
-    Input("upload-rd", "contents"),
+    Input("upload-plano", "contents"),
     State("store-dicom", "data"),
     prevent_initial_call=True,
 )
-def importar_dicom(c_tc, c_rp, c_rs, c_rd, store):
-    """Processa os uploads e acumula os dados extraídos no store."""
+def importar_dicom(c_tc, c_plano, store):
+    """Processa os uploads (TC e o pacote do plano) e acumula no store."""
     store = dict(store or {})
-    # CT pode vir como lista (série); usamos o primeiro corte para metadados.
-    entradas = {"TC": c_tc, "RP": c_rp, "RS": c_rs, "RD": c_rd}
+    disparo = dash.callback_context.triggered_id
+    status_tc, status_plano = no_update, no_update
 
-    def ok(txt):
-        return html.Span([html.I(className="fa-solid fa-circle-check text-success me-1"), txt])
-
-    def erro(txt):
-        return html.Span([html.I(className="fa-solid fa-circle-xmark text-danger me-1"), txt])
-
-    status = {}
-    for codigo, contents in entradas.items():
-        if not contents:
-            status[codigo] = ""
-            continue
-        primeiro = contents[0] if isinstance(contents, list) else contents
+    # Botão da TC — pode vir uma série; usamos o primeiro corte para metadados.
+    if disparo == "upload-tc" and c_tc:
+        primeiro = c_tc[0] if isinstance(c_tc, list) else c_tc
         try:
             lido, dados = dicom_rt.processar(_decodificar(primeiro))
-            if lido != codigo:
-                status[codigo] = erro(f"Arquivo é {lido}, esperado {codigo}")
-                continue
-            store[codigo] = dados
-            status[codigo] = ok("Carregado")
+            if lido == "TC":
+                store["TC"] = dados
+                n = len(c_tc) if isinstance(c_tc, list) else 1
+                status_tc = _status_ok(f"TC carregada ({n} arquivo(s))")
+            else:
+                status_tc = _status_erro(f"Arquivo é {lido}, esperado TC")
         except Exception as exc:  # noqa: BLE001 — feedback ao usuário, não interrompe
-            status[codigo] = erro(f"Falha: {exc}")
+            status_tc = _status_erro(f"Falha: {exc}")
 
-    return store, status["TC"], status["RP"], status["RS"], status["RD"]
+    # Botão do plano — identifica RP/RS/RD automaticamente pela modalidade.
+    if disparo == "upload-plano" and c_plano:
+        arquivos = c_plano if isinstance(c_plano, list) else [c_plano]
+        carregados, erros = [], []
+        for contents in arquivos:
+            try:
+                lido, dados = dicom_rt.processar(_decodificar(contents))
+                if lido in OBJETOS_PLANO:
+                    store[lido] = dados
+                    carregados.append(lido)
+                else:
+                    erros.append(f"{lido} ignorado")
+            except Exception as exc:  # noqa: BLE001
+                erros.append(str(exc))
+        faltando = [c for c in OBJETOS_PLANO if c not in store]
+        partes = []
+        if carregados:
+            partes.append(_status_ok(", ".join(sorted(set(carregados))) + " carregado(s)"))
+        if faltando:
+            partes.append(html.Span(f" · faltando: {', '.join(faltando)}", className="text-warning"))
+        if erros:
+            partes.append(_status_erro(" · " + "; ".join(erros)))
+        status_plano = html.Span(partes) if partes else _status_erro("Nenhum RP/RS/RD encontrado")
+
+    return store, status_tc, status_plano
 
 
 def _paciente_do_store(store: dict) -> dict:
