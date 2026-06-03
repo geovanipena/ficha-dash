@@ -77,7 +77,7 @@ def secao_upload():
                             zona_upload(
                                 "upload-plano",
                                 "status-plano",
-                                "Plano — RP + RS + RD",
+                                "Plano — RP + RS + RD (.dcm, .zip ou .rar)",
                                 multiple=True,
                             ),
                             zona_upload(
@@ -306,19 +306,22 @@ def importar_dicom(c_tc, c_plano, store):
         except Exception as exc:  # noqa: BLE001 — feedback ao usuário, não interrompe
             status_tc = _status_erro(f"Falha: {exc}")
 
-    # Botão do plano — identifica RP/RS/RD automaticamente pela modalidade.
+    # Botão do plano — aceita .dcm soltos ou pacote .zip/.rar; identifica
+    # RP/RS/RD automaticamente pela modalidade, um membro de cada vez.
     if disparo == "upload-plano" and c_plano:
         arquivos = c_plano if isinstance(c_plano, list) else [c_plano]
         carregados, erros = [], []
         for contents in arquivos:
             try:
-                lido, dados = dicom_rt.processar(_decodificar(contents))
-                if lido in OBJETOS_PLANO:
-                    store[lido] = dados
-                    carregados.append(lido)
-                else:
-                    erros.append(f"{lido} ignorado")
-            except Exception as exc:  # noqa: BLE001
+                for membro in dicom_rt.iter_dicoms(_decodificar(contents)):
+                    try:
+                        lido, dados = dicom_rt.processar(membro)
+                    except Exception:  # noqa: BLE001 — membro não-DICOM no pacote
+                        continue
+                    if lido in OBJETOS_PLANO:
+                        store[lido] = dados
+                        carregados.append(lido)
+            except Exception as exc:  # noqa: BLE001 — falha ao abrir o pacote
                 erros.append(str(exc))
         faltando = [c for c in OBJETOS_PLANO if c not in store]
         partes = []

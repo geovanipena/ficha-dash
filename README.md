@@ -5,6 +5,10 @@ tratamento em radioterapia**, construída com [Plotly Dash](https://dash.plotly.
 
 ## Funcionalidades
 
+- Importação do plano via **`.dcm` soltos, `.zip` ou `.rar`** (o pacote é
+  descompactado no servidor, evitando subir o RT Dose cru — que pode ter
+  centenas de MB). Para `.rar` o ambiente precisa de `unrar`/`7z`; `.zip`
+  funciona sem dependências externas.
 - Formulário estruturado em seções: paciente, diagnóstico, prescrição e equipe.
 - Conferência automática da dose (dose/fração × nº de frações vs. dose total).
 - Exportação da ficha em **PDF** (ReportLab).

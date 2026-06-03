@@ -7,6 +7,10 @@ a tags ausentes — sempre usam ``getattr``/``.get`` com valor padrão.
 
 from __future__ import annotations
 
+import io
+import tempfile
+import zipfile
+from collections.abc import Iterator
 from typing import Any
 
 import pydicom
@@ -22,11 +26,54 @@ MODALIDADES = {
 }
 
 
-def carregar(conteudo: bytes) -> Dataset:
-    """Carrega um arquivo DICOM a partir de bytes."""
-    from io import BytesIO
+def carregar(conteudo: bytes, stop_before_pixels: bool = True) -> Dataset:
+    """Carrega um arquivo DICOM a partir de bytes.
 
-    return pydicom.dcmread(BytesIO(conteudo), force=True)
+    Por padrão ignora os dados de pixel/matriz de dose (``stop_before_pixels``),
+    que podem ter centenas de MB no RT Dose e não são necessários para a ficha.
+    """
+    return pydicom.dcmread(io.BytesIO(conteudo), force=True, stop_before_pixels=stop_before_pixels)
+
+
+def _eh_dicom(b: bytes) -> bool:
+    """Heurística: arquivo DICOM tem o marcador 'DICM' no offset 128."""
+    return len(b) > 132 and b[128:132] == b"DICM"
+
+
+def iter_dicoms(raw: bytes) -> Iterator[bytes]:
+    """Itera os bytes de cada DICOM contido em ``raw``.
+
+    Aceita um DICOM solto ou um pacote ``.zip``/``.rar`` (descompactado em
+    memória/temporário), entregando um membro de cada vez para manter o uso de
+    memória baixo mesmo com RT Dose grande.
+    """
+    if raw[:4] == b"PK\x03\x04":  # ZIP
+        with zipfile.ZipFile(io.BytesIO(raw)) as z:
+            for nome in z.namelist():
+                if nome.endswith("/"):
+                    continue
+                yield z.read(nome)
+    elif raw[:4] == b"Rar!":  # RAR
+        try:
+            import rarfile
+        except ImportError as exc:
+            raise RuntimeError("Suporte a .rar indisponível; envie um .zip.") from exc
+
+        with tempfile.NamedTemporaryFile(suffix=".rar") as tf:
+            tf.write(raw)
+            tf.flush()
+            try:
+                with rarfile.RarFile(tf.name) as rf:
+                    for info in rf.infolist():
+                        if info.is_dir():
+                            continue
+                        yield rf.read(info)
+            except rarfile.RarCannotExec as exc:
+                raise RuntimeError(
+                    "Para abrir .rar o servidor precisa de 'unrar'/'7z'; envie um .zip."
+                ) from exc
+    else:  # DICOM solto
+        yield raw
 
 
 def _formatar_nome(valor: Any) -> str:
