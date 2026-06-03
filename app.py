@@ -73,7 +73,9 @@ def secao_upload():
             dbc.CardBody(
                 dbc.Row(
                     [
-                        zona_upload("upload-tc", "status-tc", "TC (imagens CT)", multiple=True),
+                        zona_upload(
+                            "upload-tc", "status-tc", "TC — um corte .dcm", multiple=False
+                        ),
                         zona_upload(
                             "upload-plano",
                             "status-plano",
@@ -277,15 +279,14 @@ def importar_dicom(c_tc, c_plano, store):
     disparo = dash.callback_context.triggered_id
     status_tc, status_plano = no_update, no_update
 
-    # Botão da TC — pode vir uma série; usamos o primeiro corte para metadados.
+    # Botão da TC — um único corte basta para os metadados do paciente/exame.
     if disparo == "upload-tc" and c_tc:
         primeiro = c_tc[0] if isinstance(c_tc, list) else c_tc
         try:
             lido, dados = dicom_rt.processar(_decodificar(primeiro))
             if lido == "TC":
                 store["TC"] = dados
-                n = len(c_tc) if isinstance(c_tc, list) else 1
-                status_tc = _status_ok(f"TC carregada ({n} arquivo(s))")
+                status_tc = _status_ok("TC carregada")
             else:
                 status_tc = _status_erro(f"Arquivo é {lido}, esperado TC")
         except Exception as exc:  # noqa: BLE001 — feedback ao usuário, não interrompe
