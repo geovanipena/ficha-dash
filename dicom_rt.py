@@ -11,6 +11,7 @@ from typing import Any
 
 import pydicom
 from pydicom.dataset import Dataset
+from pydicom.multival import MultiValue
 
 # Modalidades DICOM dos objetos de interesse.
 MODALIDADES = {
@@ -40,10 +41,24 @@ def _formatar_nome(valor: Any) -> str:
     nome = str(getattr(valor, "given_name", "") or "").strip()
     meio = str(getattr(valor, "middle_name", "") or "").strip()
     if familia or nome:
-        completo = " ".join(p for p in (nome, meio, familia) if p)
+        # Alguns sistemas repetem o sobrenome dentro do componente "nome"
+        # (ex.: 'Monteiro^Paula Monteiro Amorim'); nesse caso não duplicamos.
+        if familia and familia.lower() in nome.lower():
+            completo = nome
+        else:
+            completo = " ".join(p for p in (nome, meio, familia) if p)
     else:
         completo = str(valor).replace("^", " ")
     return " ".join(completo.split())
+
+
+def _primeiro_nome(valor: Any) -> str:
+    """Formata o primeiro nome de um campo que pode ser multivalorado."""
+    if valor is None or valor == "":
+        return ""
+    if isinstance(valor, MultiValue):
+        valor = valor[0] if len(valor) else ""
+    return _formatar_nome(valor)
 
 
 def _formatar_data(valor: Any) -> str:
@@ -150,6 +165,11 @@ def parse_rtplan(ds: Dataset) -> dict:
         "rotulo_plano": str(getattr(ds, "RTPlanLabel", "") or ""),
         "nome_plano": str(getattr(ds, "RTPlanName", "") or ""),
         "data_plano": _formatar_data(getattr(ds, "RTPlanDate", "")),
+        "medico": _primeiro_nome(getattr(ds, "PhysiciansOfRecord", "")),
+        "fisico": _primeiro_nome(
+            getattr(ds, "ReviewerName", "") or getattr(ds, "OperatorsName", "")
+        ),
+        "aprovacao": str(getattr(ds, "ApprovalStatus", "") or ""),
     }
 
     # Dose de prescrição (DoseReferenceSequence).

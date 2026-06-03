@@ -351,14 +351,16 @@ def _paciente_do_store(store: dict) -> dict:
     Output("rx-tecnica", "value"),
     Output("rx-energia", "value"),
     Output("rx-equipamento", "value"),
+    Output("eq-medico", "value"),
+    Output("eq-fisico", "value"),
     Input("store-dicom", "data"),
     prevent_initial_call=True,
 )
 def preencher_formulario(store):
-    """Auto-preenche paciente e prescrição a partir dos objetos importados."""
+    """Auto-preenche paciente, prescrição e equipe a partir dos objetos importados."""
     store = store or {}
     if not store:
-        return (no_update,) * 9
+        return (no_update,) * 11
     pac = _paciente_do_store(store)
     rp = store.get("RP", {})
     return (
@@ -371,6 +373,8 @@ def preencher_formulario(store):
         rp.get("tecnica") or no_update,
         rp.get("energia") or no_update,
         rp.get("maquina") or no_update,
+        rp.get("medico") or no_update,
+        rp.get("fisico") or no_update,
     )
 
 
