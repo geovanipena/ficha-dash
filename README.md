@@ -12,14 +12,16 @@ tratamento em radioterapia**, construída com [Plotly Dash](https://dash.plotly.
 - Formulário estruturado em seções: paciente, diagnóstico, prescrição e equipe.
 - Conferência automática da dose (dose/fração × nº de frações vs. dose total).
 - Exportação da ficha em **PDF** (ReportLab).
-- Base preparada para assistência via API da Claude (`anthropic`).
+
+> Todo o processamento é **local e offline**: os objetos DICOM são lidos e a
+> ficha é gerada na própria máquina, sem enviar dados do paciente para
+> serviços externos.
 
 ## Stack
 
 - Plotly Dash + `dash-bootstrap-components` (UI)
 - Plotly / Pandas (dados e gráficos)
 - ReportLab + pypdf (geração de PDF)
-- Anthropic SDK (recursos de IA)
 - Gunicorn (produção)
 
 ## Como rodar (desenvolvimento)
@@ -41,9 +43,7 @@ gunicorn app:server
 
 ## Variáveis de ambiente
 
-| Variável            | Descrição                                  |
-| ------------------- | ------------------------------------------ |
-| `ANTHROPIC_API_KEY` | Chave da API da Claude (recursos de IA).   |
+A aplicação não exige variáveis de ambiente para funcionar.
 
 ## Estrutura
 
