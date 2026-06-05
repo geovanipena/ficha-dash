@@ -1,9 +1,9 @@
 # Ficha-Py
 
-Versão **local e interativa** do [ficha-dash](https://github.com/geovanipena/ficha-dash):
-gera a **ficha técnica de tratamento em radioterapia** e, diferente do ficha-dash
-(em que a TC era opcional e usava só um corte), o Ficha-Py carrega a **série de
-TC completa** do paciente e oferece um visualizador navegável dos cortes.
+Aplicação **local e interativa** para gerar a **ficha técnica de tratamento em
+radioterapia** a partir dos objetos DICOM-RT. O Ficha-Py carrega a **série de
+TC completa** do paciente, oferece um visualizador navegável dos cortes e
+exporta a ficha em PDF.
 
 ## O que ele faz
 
