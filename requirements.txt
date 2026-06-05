@@ -1,0 +1,9 @@
+dash>=2.14.0
+dash-bootstrap-components>=1.5.0
+pydicom>=2.4.0
+numpy>=1.26.0
+pillow>=10.0.0
+matplotlib>=3.8.0
+reportlab>=4.0.0
+pypdf>=3.0.0
+rarfile>=4.1
